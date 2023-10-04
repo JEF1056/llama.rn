@@ -58,7 +58,9 @@
     if (params[@"memory_f16"]) defaultParams.memory_f16 = [params[@"memory_f16"] boolValue];
 
     if (params[@"lora"]) {
-        defaultParams.lora_adapter = [params[@"lora"] UTF8String];
+        float lora_scaled = 1.0f;
+        if (params[@"lora_scaled"]) lora_scaled = [params[@"lora_scaled"] floatValue];
+        defaultParams.lora_adapter.push_back({[params[@"lora"] UTF8String], lora_scaled});
         defaultParams.use_mmap = false;
     }
     if (params[@"lora_base"]) defaultParams.lora_base = [params[@"lora_base"] UTF8String];
@@ -176,7 +178,7 @@
     }
 
     if (params[@"logit_bias"] && [params[@"logit_bias"] isKindOfClass:[NSArray class]]) {
-        const int n_vocab = llama_n_vocab(llama->ctx);
+        const int n_vocab = llama_n_vocab(llama_get_model(llama->ctx));
         NSArray *logit_bias = params[@"logit_bias"];
         for (NSArray *el in logit_bias) {
             if ([el isKindOfClass:[NSArray class]] && [el count] == 2) {
@@ -333,6 +335,28 @@
 
     llama->is_predicting = false;
     return embeddingResult;
+}
+
+- (NSDictionary *)loadSession:(NSString *)path {
+    size_t n_token_count_out = 0;
+    llama->embd.resize(llama->params.n_ctx);
+    if (!llama_load_session_file(llama->ctx, [path UTF8String], llama->embd.data(), llama->embd.capacity(), &n_token_count_out)) {
+        @throw [NSException exceptionWithName:@"LlamaException" reason:@"Failed to load session" userInfo:nil];
+    }
+    llama->embd.resize(n_token_count_out);
+    const std::string text = rnllama::tokens_to_str(llama->ctx, llama->embd.cbegin(), llama->embd.cend());
+    return @{
+        @"tokens_loaded": @(n_token_count_out),
+        @"prompt": [NSString stringWithUTF8String:text.c_str()]
+    };
+}
+
+- (int)saveSession:(NSString *)path {
+    std::vector<llama_token> session_tokens = llama->embd;
+    if (!llama_save_session_file(llama->ctx, [path UTF8String], session_tokens.data(), session_tokens.size())) {
+        @throw [NSException exceptionWithName:@"LlamaException" reason:@"Failed to save session" userInfo:nil];
+    }
+    return session_tokens.size();
 }
 
 - (void)invalidate {

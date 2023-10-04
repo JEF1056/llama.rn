@@ -56,12 +56,14 @@ public class LlamaContext {
       params.hasKey("memory_f16") ? params.getBoolean("memory_f16") : true,
       // String lora,
       params.hasKey("lora") ? params.getString("lora") : "",
+      // float lora_scaled,
+      params.hasKey("lora_scaled") ? (float) params.getDouble("lora_scaled") : 1.0f,
       // String lora_base,
       params.hasKey("lora_base") ? params.getString("lora_base") : "",
       // float rope_freq_base,
-      params.hasKey("rope_freq_base") ? (float) params.getDouble("rope_freq_base") : 10000.0f,
+      params.hasKey("rope_freq_base") ? (float) params.getDouble("rope_freq_base") : 0.0f,
       // float rope_freq_scale
-      params.hasKey("rope_freq_scale") ? (float) params.getDouble("rope_freq_scale") : 1.0f
+      params.hasKey("rope_freq_scale") ? (float) params.getDouble("rope_freq_scale") : 0.0f
     );
     this.reactContext = reactContext;
     eventEmitter = reactContext.getJSModule(DeviceEventManagerModule.RCTDeviceEventEmitter.class);
@@ -91,6 +93,18 @@ public class LlamaContext {
       if (!emitNeeded) return;
       context.emitPartialCompletion(tokenResult);
     }
+  }
+
+  public WritableMap loadSession(String path) {
+    WritableMap result = loadSession(this.context, path);
+    if (result.hasKey("error")) {
+      throw new IllegalStateException(result.getString("error"));
+    }
+    return result;
+  }
+
+  public int saveSession(String path) {
+    return saveSession(this.context, path);
   }
 
   public WritableMap completion(ReadableMap params) {
@@ -221,9 +235,18 @@ public class LlamaContext {
     boolean use_mmap,
     boolean memory_f16,
     String lora,
+    float lora_scaled,
     String lora_base,
     float rope_freq_base,
     float rope_freq_scale
+  );
+  protected static native WritableMap loadSession(
+    long contextPtr,
+    String path
+  );
+  protected static native int saveSession(
+    long contextPtr,
+    String path
   );
   protected static native WritableMap doCompletion(
     long context_ptr,

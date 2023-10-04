@@ -19,6 +19,7 @@ export type NativeContextParams = {
   memory_f16?: boolean
 
   lora?: string // lora_adaptor
+  lora_scaled?: number
   lora_base?: string
 
   rope_freq_base?: number
@@ -105,10 +106,17 @@ export type NativeLlamaContext = {
   reasonNoGPU: string
 }
 
+export type NativeSessionLoadResult = {
+  tokens_loaded: number
+  prompt: string
+}
+
 export interface Spec extends TurboModule {
   setContextLimit(limit: number): Promise<void>;
   initContext(params: NativeContextParams): Promise<NativeLlamaContext>;
 
+  loadSession(contextId: number, filepath: string): Promise<NativeSessionLoadResult>;
+  saveSession(contextId: number, filepath: string): Promise<number>;
   completion(contextId: number, params: NativeCompletionParams): Promise<NativeCompletionResult>;
   stopCompletion(contextId: number): Promise<void>;
   tokenize(contextId: number, text: string): Promise<NativeTokenizeResult>;

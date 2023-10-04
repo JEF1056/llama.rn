@@ -131,6 +131,7 @@ Java_com_rnllama_LlamaContext_initContext(
     jboolean use_mmap,
     jboolean memory_f16,
     jstring lora_str,
+    jfloat lora_scaled,
     jstring lora_base_str,
     jfloat rope_freq_base,
     jfloat rope_freq_scale
@@ -160,10 +161,12 @@ Java_com_rnllama_LlamaContext_initContext(
     defaultParams.memory_f16 = memory_f16;
 
     const char *lora_chars = env->GetStringUTFChars(lora_str, nullptr);
-    defaultParams.lora_adapter = lora_chars;
-
     const char *lora_base_chars = env->GetStringUTFChars(lora_base_str, nullptr);
-    defaultParams.lora_base = lora_base_chars;
+    if (!lora_chars) {
+        defaultParams.lora_adapter.push_back({lora_chars, lora_scaled});
+        defaultParams.lora_base = lora_base_chars;
+        defaultParams.use_mmap = false;
+    }
 
     defaultParams.rope_freq_base = rope_freq_base;
     defaultParams.rope_freq_scale = rope_freq_scale;
@@ -183,6 +186,57 @@ Java_com_rnllama_LlamaContext_initContext(
     env->ReleaseStringUTFChars(lora_base_str, lora_base_chars);
 
     return reinterpret_cast<jlong>(llama->ctx);
+}
+
+JNIEXPORT jobject JNICALL
+Java_com_rnllama_LlamaContext_loadSession(
+    JNIEnv *env,
+    jobject thiz,
+    jlong context_ptr,
+    jstring path
+) {
+    UNUSED(thiz);
+    auto llama = context_map[(long) context_ptr];
+    const char *path_chars = env->GetStringUTFChars(path, nullptr);
+
+    auto result = createWriteableMap(env);
+    size_t n_token_count_out = 0;
+    llama->embd.resize(llama->params.n_ctx);
+    if (!llama_load_session_file(llama->ctx, path_chars, llama->embd.data(), llama->embd.capacity(), &n_token_count_out)) {
+      env->ReleaseStringUTFChars(path, path_chars);
+
+      putString(env, result, "error", "Failed to load session");
+      return reinterpret_cast<jobject>(result);
+    }
+    llama->embd.resize(n_token_count_out);
+    env->ReleaseStringUTFChars(path, path_chars);
+
+    const std::string text = rnllama::tokens_to_str(llama->ctx, llama->embd.cbegin(), llama->embd.cend());
+    putInt(env, result, "tokens_loaded", n_token_count_out);
+    putString(env, result, "prompt", text.c_str());
+    return reinterpret_cast<jobject>(result);
+}
+
+JNIEXPORT jint JNICALL
+Java_com_rnllama_LlamaContext_saveSession(
+    JNIEnv *env,
+    jobject thiz,
+    jlong context_ptr,
+    jstring path
+) {
+    UNUSED(thiz);
+    auto llama = context_map[(long) context_ptr];
+
+    const char *path_chars = env->GetStringUTFChars(path, nullptr);
+
+    std::vector<llama_token> session_tokens = llama->embd;
+    if (!llama_save_session_file(llama->ctx, path_chars, session_tokens.data(), session_tokens.size())) {
+      env->ReleaseStringUTFChars(path, path_chars);
+      return -1;
+    }
+
+    env->ReleaseStringUTFChars(path, path_chars);
+    return session_tokens.size();
 }
 
 static inline jobject tokenProbsToMap(
@@ -281,7 +335,7 @@ Java_com_rnllama_LlamaContext_doCompletion(
         llama->params.logit_bias[llama_token_eos(llama->ctx)] = -INFINITY;
     }
 
-    const int n_vocab = llama_n_vocab(llama->ctx);
+    const int n_vocab = llama_n_vocab(llama_get_model(llama->ctx));
     jsize logit_bias_len = env->GetArrayLength(logit_bias);
 
     for (jsize i = 0; i < logit_bias_len; i++) {
