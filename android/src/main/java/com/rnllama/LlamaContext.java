@@ -96,6 +96,13 @@ public class LlamaContext {
   }
 
   public WritableMap loadSession(String path) {
+    if (path == null || path.isEmpty()) {
+      throw new IllegalArgumentException("File path is empty");
+    }
+    File file = new File(path);
+    if (!file.exists()) {
+      throw new IllegalArgumentException("File does not exist: " + path);
+    }
     WritableMap result = loadSession(this.context, path);
     if (result.hasKey("error")) {
       throw new IllegalStateException(result.getString("error"));
@@ -103,8 +110,11 @@ public class LlamaContext {
     return result;
   }
 
-  public int saveSession(String path) {
-    return saveSession(this.context, path);
+  public int saveSession(String path, int size) {
+    if (path == null || path.isEmpty()) {
+      throw new IllegalArgumentException("File path is empty");
+    }
+    return saveSession(this.context, path, size);
   }
 
   public WritableMap completion(ReadableMap params) {
@@ -139,14 +149,14 @@ public class LlamaContext {
       params.hasKey("n_predict") ? params.getInt("n_predict") : -1,
       // int n_probs,
       params.hasKey("n_probs") ? params.getInt("n_probs") : 0,
-      // int repeat_last_n,
-      params.hasKey("repeat_last_n") ? params.getInt("repeat_last_n") : 64,
-      // float repeat_penalty,
-      params.hasKey("repeat_penalty") ? (float) params.getDouble("repeat_penalty") : 1.10f,
-      // float presence_penalty,
-      params.hasKey("presence_penalty") ? (float) params.getDouble("presence_penalty") : 0.00f,
-      // float frequency_penalty,
-      params.hasKey("frequency_penalty") ? (float) params.getDouble("frequency_penalty") : 0.00f,
+      // int penalty_last_n,
+      params.hasKey("penalty_last_n") ? params.getInt("penalty_last_n") : 64,
+      // float penalty_repeat,
+      params.hasKey("penalty_repeat") ? (float) params.getDouble("penalty_repeat") : 1.10f,
+      // float penalty_freq,
+      params.hasKey("penalty_freq") ? (float) params.getDouble("penalty_freq") : 0.00f,
+      // float penalty_present,
+      params.hasKey("penalty_present") ? (float) params.getDouble("penalty_present") : 0.00f,
       // float mirostat,
       params.hasKey("mirostat") ? (float) params.getDouble("mirostat") : 0.00f,
       // float mirostat_tau,
@@ -211,7 +221,30 @@ public class LlamaContext {
   }
 
   static {
-    if (LlamaContext.isArm64V8a() == true || LlamaContext.isX86_64() == true) {
+    Log.d(NAME, "Primary ABI: " + Build.SUPPORTED_ABIS[0]);
+    if (LlamaContext.isArm64V8a()) {
+      boolean loadV8fp16 = false;
+      if (LlamaContext.isArm64V8a()) {
+        // ARMv8.2a needs runtime detection support
+        String cpuInfo = LlamaContext.cpuInfo();
+        if (cpuInfo != null) {
+          Log.d(NAME, "CPU info: " + cpuInfo);
+          if (cpuInfo.contains("fphp")) {
+            Log.d(NAME, "CPU supports fp16 arithmetic");
+            loadV8fp16 = true;
+          }
+        }
+      }
+
+      if (loadV8fp16) {
+        Log.d(NAME, "Loading librnllama_v8fp16_va.so");
+        System.loadLibrary("rnllama_v8fp16_va");
+      } else {
+        Log.d(NAME, "Loading librnllama.so");
+        System.loadLibrary("rnllama");
+      }
+    } else if (LlamaContext.isX86_64()) {
+      Log.d(NAME, "Loading librnllama.so");
       System.loadLibrary("rnllama");
     }
   }
@@ -222,6 +255,23 @@ public class LlamaContext {
 
   private static boolean isX86_64() {
     return Build.SUPPORTED_ABIS[0].equals("x86_64");
+  }
+
+  private static String cpuInfo() {
+    File file = new File("/proc/cpuinfo");
+    StringBuilder stringBuilder = new StringBuilder();
+    try {
+      BufferedReader bufferedReader = new BufferedReader(new FileReader(file));
+      String line;
+      while ((line = bufferedReader.readLine()) != null) {
+          stringBuilder.append(line);
+      }
+      bufferedReader.close();
+      return stringBuilder.toString();
+    } catch (IOException e) {
+      Log.w(NAME, "Couldn't read /proc/cpuinfo", e);
+      return null;
+    }
   }
 
   protected static native long initContext(
@@ -246,7 +296,8 @@ public class LlamaContext {
   );
   protected static native int saveSession(
     long contextPtr,
-    String path
+    String path,
+    int size
   );
   protected static native WritableMap doCompletion(
     long context_ptr,
@@ -256,10 +307,10 @@ public class LlamaContext {
     int n_threads,
     int n_predict,
     int n_probs,
-    int repeat_last_n,
-    float repeat_penalty,
-    float presence_penalty,
-    float frequency_penalty,
+    int penalty_last_n,
+    float penalty_repeat,
+    float penalty_freq,
+    float penalty_present,
     float mirostat,
     float mirostat_tau,
     float mirostat_eta,

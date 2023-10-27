@@ -37,10 +37,10 @@ export type NativeCompletionParams = {
 
   temperature?: number // -> temp
 
-  repeat_last_n?: number
-  repeat_penalty?: number
-  presence_penalty?: number
-  frequency_penalty?: number
+  penalty_last_n?: number
+  penalty_repeat?: number
+  penalty_freq?: number
+  penalty_present?: number
   mirostat?: number
   mirostat_tau?: number
   mirostat_eta?: number
@@ -116,7 +116,7 @@ export interface Spec extends TurboModule {
   initContext(params: NativeContextParams): Promise<NativeLlamaContext>;
 
   loadSession(contextId: number, filepath: string): Promise<NativeSessionLoadResult>;
-  saveSession(contextId: number, filepath: string): Promise<number>;
+  saveSession(contextId: number, filepath: string, size: number): Promise<number>;
   completion(contextId: number, params: NativeCompletionParams): Promise<NativeCompletionResult>;
   stopCompletion(contextId: number): Promise<void>;
   tokenize(contextId: number, text: string): Promise<NativeTokenizeResult>;
